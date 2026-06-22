@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap, Polygon, Polyline, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap, Polygon, Polyline, useMapEvents, Pane } from 'react-leaflet';
 import { collection, onSnapshot, doc, updateDoc, deleteDoc, addDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import 'leaflet/dist/leaflet.css';
@@ -9,14 +9,14 @@ import AddPointForm from './AddPointForm';
 const CENTER = [32.0853, 34.7818];
 
 const STATUS_COLORS = {
-  GREY: '#9e9e9e',   
-  RED: '#e53935',    
-  YELLOW: '#fb8c00', 
-  GREEN: '#43a047',  
+  BLUE: '#1e88e5',   // כחול רויאל לנקודות חדשות
+  RED: '#e53935',    // אדום למלא/דחוף
+  YELLOW: '#fb8c00', // כתום לחלקי
+  GREEN: '#43a047',  // ירוק לפונה/ריק
 };
 
 const STATUS_LABELS = {
-  GREY: 'לא ידוע / חדש',
+  BLUE: 'לא ידוע / חדש',
   RED: 'מלא / דחוף',
   YELLOW: 'חלקי',
   GREEN: 'פונה / ריק',
@@ -176,44 +176,66 @@ export default function MapView() {
             );
           })}
 
-        {/* מרקרים */}
-        {points.map((p) => (
-          <CircleMarker
-            key={p.id}
-            center={[p.lat, p.lng]}
-            radius={9}
-            pathOptions={{ color: STATUS_COLORS[p.status] || '#9e9e9e', fillColor: STATUS_COLORS[p.status] || '#9e9e9e', fillOpacity: 0.8 }}
-          >
-            <Popup>
-              <div style={{ direction: 'rtl', textAlign: 'right', minWidth: '180px' }}>
-                {editingPointId === p.id ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <input value={editData.address} onChange={(e) => setEditData({...editData, address: e.target.value})} style={inputStyle} />
-                    <button onClick={async () => {
-                      await updateDoc(doc(db, 'CollectionPoints', p.id), editData);
-                      setEditingPointId(null);
-                    }} style={{ background: '#43a047', color: 'white', border: 'none', padding: '4px' }}>שמור</button>
-                  </div>
-                ) : (
-                  <>
-                    <strong>{p.address}</strong><br />
-                    <span>איש קשר: {p.contactName}</span><br />
-                    <span>טלפון: {p.phone}</span><br />
-                    <select value={p.status || 'GREY'} onChange={(e) => handleStatusChange(p.id, e.target.value)} style={{ width: '100%', marginTop: '5px' }}>
-                      {Object.entries(STATUS_LABELS).map(([key, label]) => (
-                        <option key={key} value={key}>{label}</option>
-                      ))}
-                    </select>
-                    <div style={{ display: 'flex', gap: '5px', marginTop: '5px' }}>
-                      <button onClick={() => { setEditingPointId(p.id); setEditData({ address: p.address, contactName: p.contactName, phone: p.phone }); }} style={{ background: '#fb8c00', color: 'white', border: 'none', flex: 1 }}>ערוך</button>
-                      <button onClick={() => handleDelete(p.id)} style={{ background: '#e53935', color: 'white', border: 'none', flex: 1 }}>מחק</button>
+        {/* מרקרים שצפים מעל הפוליגונים */}
+        <Pane name="top-points-pane" style={{ zIndex: 450 }}>
+          {points.map((p) => (
+            <CircleMarker
+              key={p.id}
+              center={[p.lat, p.lng]}
+              radius={9}
+              pathOptions={{ 
+                color: STATUS_COLORS[p.status] || '#1e88e5', 
+                fillColor: STATUS_COLORS[p.status] || '#1e88e5', 
+                fillOpacity: 0.8 
+              }}
+            >
+              <Popup>
+                <div style={{ direction: 'rtl', textAlign: 'right', minWidth: '180px' }}>
+                  {editingPointId === p.id ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <input value={editData.address} onChange={(e) => setEditData({...editData, address: e.target.value})} style={inputStyle} />
+                      <button onClick={async () => {
+                        await updateDoc(doc(db, 'CollectionPoints', p.id), editData);
+                        setEditingPointId(null);
+                      }} style={{ background: '#43a047', color: 'white', border: 'none', padding: '4px' }}>שמור</button>
                     </div>
-                  </>
-                )}
-              </div>
-            </Popup>
-          </CircleMarker>
-        ))}
+                  ) : (
+                    <>
+                      <strong>{p.address}</strong><br />
+                      <span>איש קשר: {p.contactName}</span><br />
+                      <span>טלפון: {p.phone}</span><br />
+                      
+                      {/* הפיצ'ר של שלב 3: הצגת תמונת דיווח חיה מהשטח שהנהג העלה */}
+                      {p.imageUrl && (
+                        <div style={{ marginTop: '8px', marginBottom: '8px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#1a237e', marginBottom: '3px' }}>📸 דיווח מצולם מהשטח:</div>
+                          <a href={p.imageUrl} target="_blank" rel="noreferrer">
+                            <img 
+                              src={p.imageUrl} 
+                              alt="דיווח נהג" 
+                              style={{ width: '100%', maxHeight: '100px', borderRadius: '6px', objectFit: 'cover', border: '1px solid #ccc' }} 
+                            />
+                          </a>
+                          <div style={{ fontSize: '9px', color: '#777', marginTop: '2px' }}>לחץ על התמונה להגדלה</div>
+                        </div>
+                      )}
+
+                      <select value={p.status || 'BLUE'} onChange={(e) => handleStatusChange(p.id, e.target.value)} style={{ width: '100%', marginTop: '5px' }}>
+                        {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                          <option key={key} value={key}>{label}</option>
+                        ))}
+                      </select>
+                      <div style={{ display: 'flex', gap: '5px', marginTop: '5px' }}>
+                        <button onClick={() => { setEditingPointId(p.id); setEditData({ address: p.address, contactName: p.contactName, phone: p.phone }); }} style={{ background: '#fb8c00', color: 'white', border: 'none', flex: 1 }}>ערוך</button>
+                        <button onClick={() => handleDelete(p.id)} style={{ background: '#e53935', color: 'white', border: 'none', flex: 1 }}>מחק</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </Popup>
+            </CircleMarker>
+          ))}
+        </Pane>
       </MapContainer>
 
       {/* לוח הבקרה המאוחד */}
@@ -222,28 +244,23 @@ export default function MapView() {
           לוח בקרת מפקח
         </div>
         
-        {/* מקטע א': נהג פעיל / סינון גזרות */}
+        {/* סינון נהג */}
         <div style={sectionHeaderStyle}>סינון לפי נהג איסוף</div>
-        <select 
-          value={selectedDriver} 
-          onChange={(e) => setSelectedDriver(e.target.value)} 
-          style={dropdownStyle}
-        >
+        <select value={selectedDriver} onChange={(e) => setSelectedDriver(e.target.value)} style={dropdownStyle}>
           <option value="ALL">🌍 כל הנהגים</option>
           <option value="נהג 1">🚚 נהג 1</option>
           <option value="נהג 2">🚚 נהג 2</option>
           <option value="נהג 3">🚚 נהג 3</option>
         </select>
 
-        {/* מקטע ב': ניהול נקודות איסוף */}
+        {/* נקודות איסוף */}
         <div style={{ ...sectionHeaderStyle, marginTop: '12px' }}>נקודות איסוף</div>
         <button onClick={() => setShowForm(!showForm)} style={panelButtonStyle('#1976d2')}>
           {showForm ? '✖ סגור טופס הוספה' : '➕ הוסף נקודה ידנית'}
         </button>
 
-        {/* מקטע ג': ניהול גזרות ואזורים */}
+        {/* ניהול גזרות */}
         <div style={{ ...sectionHeaderStyle, marginTop: '12px' }}>ניהול גזרות</div>
-        
         {drawingMode === null ? (
           <button onClick={() => { setDrawingMode('polygon'); setTempCoords([]); }} style={panelButtonStyle('#2e7d32')}>
             📐 הגדרת גזרה חדשה
