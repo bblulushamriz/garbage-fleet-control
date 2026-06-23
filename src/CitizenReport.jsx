@@ -1,16 +1,15 @@
 import { useState, useEffect } from 'react';
-import { db, storage } from './firebase'; // הוספנו את ה-storage של התמונות
+import { db, storage } from './firebase'; 
 import { collection, addDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // פונקציות להעלאת קבצים
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; 
 
 export default function CitizenReport() {
   const [formData, setFormData] = useState({ address: '', contactName: '', phone: '', issueDescription: 'פינוי מכולה' });
   const [suggestions, setSuggestions] = useState([]);
-  const [imageFile, setImageFile] = useState(null); // סטייט חדש לתמונה שהאזרח מצלם
+  const [imageFile, setImageFile] = useState(null); 
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // מנוע חיפוש הכתובות המצוין שלך
   const fetchSuggestions = async (query) => {
     if (query.length < 3) {
       setSuggestions([]);
@@ -41,7 +40,6 @@ export default function CitizenReport() {
     setLoading(true);
 
     try {
-      // 1. חילוץ קואורדינטות לפי הכתובת שנבחרה
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formData.address)}&limit=1&accept-language=he`
       );
@@ -49,7 +47,6 @@ export default function CitizenReport() {
       const lat = data[0]?.lat || 32.0853;
       const lon = data[0]?.lon || 34.7818;
 
-      // 2. העלאת התמונה ל-Storage במידה והאזרח צילם מפגע
       let imageUrl = '';
       if (imageFile) {
         const fileRef = ref(storage, `citizen_reports/${Date.now()}_${imageFile.name}`);
@@ -57,7 +54,7 @@ export default function CitizenReport() {
         imageUrl = await getDownloadURL(fileRef);
       }
 
-      // 3. שמירה באוסף ההמתנה של הבקר (PendingReports) ולא ישירות במפה!
+      // שליחה לאוסף הממתינים
       await addDoc(collection(db, 'PendingReports'), {
         address: formData.address,
         contactName: formData.contactName || 'אזרח אנונימי',
@@ -65,15 +62,15 @@ export default function CitizenReport() {
         issueDescription: formData.issueDescription,
         lat: parseFloat(lat),
         lng: parseFloat(lon),
-        status: 'BLUE', // סטטוס כחול כברירת מחדל לנקודה חדשה
-        imageUrl: imageUrl, // כתובת התמונה בענן
+        status: 'BLUE', 
+        imageUrl: imageUrl, 
         createdAt: new Date()
       });
 
       setSubmitted(true);
     } catch (error) {
       console.error(error);
-      alert('שגיאה בשליחת הדיווח');
+      alert('שגיאה בשליחת הדיווח. ודא שחוקי ה-Firestore פתוחים ל-PendingReports.');
     } finally {
       setLoading(false);
     }
@@ -96,7 +93,6 @@ export default function CitizenReport() {
       
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
         
-        {/* שדה כתובת חכם עם השלמה אוטומטית */}
         <div style={{ position: 'relative' }}>
           <label style={labelStyle}>📍 מיקום או כתובת המפגע *</label>
           <input 
@@ -121,7 +117,6 @@ export default function CitizenReport() {
           )}
         </div>
 
-        {/* מהות המפגע */}
         <div>
           <label style={labelStyle}>📝 מהות המפגע</label>
           <select 
@@ -137,30 +132,22 @@ export default function CitizenReport() {
           </select>
         </div>
 
-        {/* שם וטלפון */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <div>
             <label style={labelStyle}>👤 שם מלא (רשות)</label>
-            <input placeholder="ישראל ישראלי" style={inputStyle} onChange={(e) => setFormData({...formData, contactName: e.target.value})} />
+            <input placeholder="ישראל ישראלי" style={inputStyle} value={formData.contactName} onChange={(e) => setFormData({...formData, contactName: e.target.value})} />
           </div>
           <div>
             <label style={labelStyle}>📞 טלפון (רשות)</label>
-            <input placeholder="050-1234567" type="tel" style={inputStyle} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
+            <input placeholder="050-1234567" type="tel" style={inputStyle} value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
           </div>
         </div>
 
-        {/* רכיב צילום תמונה מובנה מהנייד */}
         <div>
           <label style={labelStyle}>📸 צרף תמונת מצב מהשטח</label>
           <label style={fileLabelStyle(imageFile !== null)}>
             {imageFile ? `📎 קובץ נבחר: ${imageFile.name.substring(0, 15)}...` : '📷 לחץ כאן כדי לצלם את המפגע'}
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment" 
-              onChange={(e) => setImageFile(e.target.files[0])} 
-              style={{ display: 'none' }}
-            />
+            <input type="file" accept="image/*" capture="environment" onChange={(e) => setImageFile(e.target.files[0])} style={{ display: 'none' }} />
           </label>
         </div>
         
@@ -172,15 +159,10 @@ export default function CitizenReport() {
   );
 }
 
-// עיצובים
+// עיצובים - הוספנו color: '#333' כדי לפתור את בעיית הכתב הלבן
 const labelStyle = { display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '4px', color: '#333' };
-const inputStyle = { padding: '12px', borderRadius: 8, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box', outline: 'none', background: '#fafafa' };
+const inputStyle = { padding: '12px', borderRadius: 8, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box', outline: 'none', background: '#fafafa', color: '#333' };
 const buttonStyle = (loading) => ({ padding: '14px', background: loading ? '#9e9e9e' : '#1a237e', color: 'white', border: 'none', borderRadius: 8, cursor: loading ? 'not-allowed' : 'pointer', fontSize: '16px', fontWeight: 'bold', marginTop: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' });
 const fileLabelStyle = (active) => ({ display: 'block', textAlign: 'center', background: active ? '#e8f5e9' : '#f0f4f8', color: active ? '#2e7d32' : '#1a73e8', padding: '12px', borderRadius: '8px', border: active ? '2px solid #2e7d32' : '2px dashed #1a73e8', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' });
-
-const suggestionsStyle = { 
-  position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #ccc', borderTop: 'none',
-  listStyle: 'none', padding: 0, margin: 0, zIndex: 9999, maxHeight: '180px', overflowY: 'auto',
-  boxShadow: '0 4px 10px rgba(0,0,0,0.15)', borderRadius: '0 0 8px 8px'
-};
+const suggestionsStyle = { position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #ccc', borderTop: 'none', listStyle: 'none', padding: 0, margin: 0, zIndex: 9999, maxHeight: '180px', overflowY: 'auto', boxShadow: '0 4px 10px rgba(0,0,0,0.15)', borderRadius: '0 0 8px 8px' };
 const suggestionItemStyle = { padding: '11px 12px', cursor: 'pointer', borderBottom: '1px solid #eee', fontSize: '13px', color: '#333', textAlign: 'right' };
