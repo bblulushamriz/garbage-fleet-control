@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react'; // ◄-- התיקון כאן! הוספנו את useRef
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap, Polygon, Polyline, useMapEvents, Pane } from 'react-leaflet';
 import { collection, onSnapshot, doc, updateDoc, deleteDoc, addDoc } from 'firebase/firestore';
 import { db } from './firebase';
@@ -86,7 +86,6 @@ export default function MapView() {
     return () => unsub();
   }, []);
 
-  // כפתור אישור דיווח תושב מהסיידבר
   const handleApproveReport = async (report) => {
     try {
       await addDoc(collection(db, 'CollectionPoints'), {
@@ -97,7 +96,7 @@ export default function MapView() {
         lat: report.lat,
         lng: report.lng,
         status: 'BLUE', 
-        imageUrlBefore: report.imageUrl || '', // התמונה המקורית הופכת ל"לפני"
+        imageUrlBefore: report.imageUrl || '', 
         createdAt: new Date()
       });
       await deleteDoc(doc(db, 'PendingReports', report.id));
@@ -129,14 +128,13 @@ export default function MapView() {
     try { await updateDoc(doc(db, 'CollectionPoints', id), { status: newStatus }); } catch (e) {}
   };
 
-  // 🛠️ פיצ'ר מבוקש: פונקציה לניקוי קבצי התמונות בלבד מתוך הדוקומנט
   const handleClearPhotos = async (id) => {
     if (window.confirm('האם אתה בטוח שברצונך למחוק את תמונות התיעוד (לפני ואחרי) של מכולה זו?')) {
       try {
         await updateDoc(doc(db, 'CollectionPoints', id), {
           imageUrlBefore: '',
           imageUrlAfter: '',
-          imageUrl: '' // ניקוי שדה מורשת למניעת כפילויות
+          imageUrl: '' 
         });
         alert('תמונות התיעוד אופסו בהצלחה מהמערכת!');
       } catch (e) {
@@ -158,7 +156,7 @@ export default function MapView() {
       
       {/* לוח צדדי: סינון דיווחי תושבים נכנסים */}
       <div style={sidebarStyle}>
-        <h2 style={sidebarTitleStyle}>📥 דיווחי תישובים להערכה ({pendingReports.length})</h2>
+        <h2 style={sidebarTitleStyle}>📥 דיווחי תושבים להערכה ({pendingReports.length})</h2>
         <p style={sidebarSubStyle}>מערכת סינון ומודרציה בזמן אמת</p>
         <hr style={dividerStyle} />
         
@@ -207,7 +205,7 @@ export default function MapView() {
               );
             })}
 
-          {/* נקודות מכולה על המפה עם פופאפ מעוצב מחדש לחלוטין (שלב 2) */}
+          {/* נקודות מכולה על המפה */}
           <Pane name="top-points-pane" style={{ zIndex: 450 }}>
             {points.map((p) => (
               <CircleMarker key={p.id} center={[p.lat, p.lng]} radius={10} pathOptions={{ color: STATUS_COLORS[p.status] || '#1e88e5', fillColor: STATUS_COLORS[p.status] || '#1e88e5', fillOpacity: 0.85 }}>
@@ -226,7 +224,7 @@ export default function MapView() {
                           📋 סוג: {p.issueDescription || 'פינוי סדיר'}
                         </div>
 
-                        {/* 🔄 סרגל עדכון סטטוסים מעוצב בכפתורים כמו ממשק הנהג */}
+                        {/* סרגל עדכון סטטוסים מעוצב */}
                         <label style={popupLabelStyle}>🔄 עדכן מצב מכולה (מוקד):</label>
                         <div style={statusGridStyle}>
                           <button onClick={() => handleStatusChange(p.id, 'BLUE')} style={statusBtnStyle('#1976d2', p.status === 'BLUE' || !p.status)}>🔵 חדש</button>
@@ -235,10 +233,9 @@ export default function MapView() {
                           <button onClick={() => handleStatusChange(p.id, 'GREEN')} style={statusBtnStyle('#43a047', p.status === 'GREEN')}>✅ פונה</button>
                         </div>
 
-                        {/* 📸 קוביות תיעוד תמונות לפני ואחרי (תואם לחלוטין לממשק הנהג) */}
+                        {/* קוביות תיעוד תמונות לפני ואחרי */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '10px' }}>
                           
-                          {/* תמונת לפני */}
                           <div style={photoBoxStyle}>
                             <div style={photoTitleStyle('#e65100')}>📸 לפני הפינוי</div>
                             {p.imageUrlBefore || p.imageUrl ? (
@@ -250,7 +247,6 @@ export default function MapView() {
                             )}
                           </div>
 
-                          {/* תמונת אחרי */}
                           <div style={photoBoxStyle}>
                             <div style={photoTitleStyle('#2e7d32')}>📸 אחרי הפינוי</div>
                             {p.imageUrlAfter ? (
@@ -263,14 +259,13 @@ export default function MapView() {
                           </div>
                         </div>
 
-                        {/* 🛠️ לחצן ניקוי תמונות ייעודי מבוקש */}
+                        {/* לחצן ניקוי תמונות */}
                         {(p.imageUrlBefore || p.imageUrl || p.imageUrlAfter) && (
                           <button onClick={() => handleClearPhotos(p.id)} style={btnClearPhotosStyle}>
                             🖼️ נקה קבצי תמונות מהמכולה
                           </button>
                         )}
 
-                        {/* כפתורי שליטה משניים: עריכה ומחיקה של כל הנקודה */}
                         <div style={{ display: 'flex', gap: '6px', marginTop: '12px', borderTop: '1px solid #eee', paddingTop: '8px' }}>
                           <button onClick={() => { setEditingPointId(p.id); setEditData({ address: p.address, contactName: p.contactName || '', phone: p.phone || '' }); }} style={btnEditStyle}>✏️ ערוך כתובת</button>
                           <button onClick={() => handleDelete(p.id)} style={btnDeleteStyle}>🗑️ מחק נקודה</button>
@@ -284,7 +279,7 @@ export default function MapView() {
           </Pane>
         </MapContainer>
 
-        {/* לוח הניהול הראשי והמקורי של המפקח (מוצמד לשמאל מעל המפה) */}
+        {/* לוח הניהול הראשי */}
         <div style={panelStyle}>
           <div style={{ fontWeight: 'bold', marginBottom: '4px', fontSize: '15px', color: '#1a237e', borderBottom: '2px solid #e0e0e0', paddingBottom: '6px', textAlign: 'center' }}>לוח בקרת מפקח</div>
           
@@ -317,13 +312,11 @@ export default function MapView() {
   );
 }
 
-// ============== מערכת עיצובים קשיחה ומבוטחת צבעים (CSS-in-JS) ==============
+// עיצובים
 const sectionHeaderStyle = { fontSize: '12px', fontWeight: 'bold', color: '#555', marginBottom: '4px', marginTop: '6px' };
 const dropdownStyle = { width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '13px', backgroundColor: '#f8f9fa', color: '#333', cursor: 'pointer', direction: 'rtl' };
 const panelStyle = { position: 'absolute', top: '20px', left: '20px', zIndex: 1000, background: 'white', padding: '14px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '4px', width: '220px', maxHeight: '90vh', overflowY: 'auto', direction: 'rtl', textAlign: 'right', boxSizing: 'border-box' };
 const panelButtonStyle = (color) => ({ background: color, color: 'white', border: 'none', padding: '9px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', textAlign: 'center', width: '100%' });
-
-// עיצוב סיידבר מודרציה
 const sidebarStyle = { width: '340px', height: '100%', background: '#ffffff', boxShadow: '-2px 0 15px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', zIndex: 1050, boxSizing: 'border-box', padding: '16px' };
 const sidebarTitleStyle = { margin: 0, fontSize: '16px', color: '#1a237e', fontWeight: 'bold' };
 const sidebarSubStyle = { margin: '3px 0 0 0', fontSize: '11px', color: '#666' };
@@ -334,19 +327,15 @@ const reportCardStyle = { background: '#f5f7fa', border: '1px solid #e0e4ec', bo
 const sidebarImageStyle = { width: '100%', maxHeight: '90px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ddd', marginTop: '4px', marginBottom: '4px' };
 const btnApproveStyle = { background: '#2e7d32', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' };
 const btnRejectStyle = { background: '#c62828', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' };
-
-// 🎨 עיצובי פופאפ הבקרה המעודכן (Popup)
 const popupContainerStyle = { minWidth: '240px', direction: 'rtl', textAlign: 'right', fontFamily: 'sans-serif' };
 const popupInputStyle = { padding: '5px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px', width: '100%', boxSizing: 'border-box' };
 const popupLabelStyle = { display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#333' };
 const statusGridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px', marginBottom: '10px' };
 const statusBtnStyle = (color, active) => ({ background: active ? color : '#f5f5f5', color: active ? 'white' : '#555', border: active ? 'none' : '1px solid #ccc', padding: '8px 0', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center' });
-
 const photoBoxStyle = { background: '#f9f9f9', border: '1px solid #e0e0e0', padding: '5px', borderRadius: '6px', boxSizing: 'border-box', textAlign: 'center' };
 const photoTitleStyle = (color) => ({ fontSize: '11px', fontWeight: 'bold', color: color, marginBottom: '4px', textAlign: 'right' });
 const imgPreviewStyle = { width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ddd' };
 const emptyPhotoPlaceholderStyle = { height: '80px', background: '#eaeaea', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#777', border: '1px dashed #ccc' };
-
 const btnClearPhotosStyle = { width: '100%', padding: '7px', background: '#37474f', color: 'white', border: 'none', borderRadius: '5px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', marginTop: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' };
 const btnEditStyle = { background: '#fb8c00', color: 'white', border: 'none', padding: '5px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', flex: 1 };
 const btnDeleteStyle = { background: '#e53935', color: 'white', border: 'none', padding: '5px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', flex: 1 };
