@@ -166,167 +166,168 @@ export default function MapView() {
   };
 
   return (
-    <div style={{ display: 'flex', width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', direction: 'rtl', fontFamily: 'sans-serif' }}>
+    <div style={{ position: 'relative', width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', direction: 'rtl', fontFamily: 'sans-serif' }}>
       
-      {/* לוח צדדי */}
-      <div style={sidebarStyle}>
-        <h2 style={sidebarTitleStyle}>📥 דיווחי תושבים להערכה ({pendingReports.length})</h2>
-        <p style={sidebarSubStyle}>מערכת סינון ומודרציה בזמן אמת</p>
-        <hr style={dividerStyle} />
+      {/* מפת השליטה והבקרה המרכזית - כעת נפרסת ב-100% על כל המרקע */}
+      <MapContainer center={CENTER} zoom={12} style={{ height: '100%', width: '100%' }}>
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <FitBounds points={points} />
         
-        <div style={sidebarListContainerStyle}>
-          {pendingReports.length === 0 ? (
-            <div style={emptyStateStyle}>אין דיווחים ממתינים כעת. המערכת נקייה! ✨</div>
-          ) : (
-            pendingReports.map((report) => (
-              <div key={report.id} style={reportCardStyle}>
-                <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#1a237e', marginBottom: '4px' }}>📍 {report.address || 'ללא כתובת'}</div>
-                <div style={{ fontSize: '12px', color: '#333', marginBottom: '6px' }}><strong>תיאור:</strong> {report.issueDescription || 'ללא פירוט'}</div>
-                {report.imageUrl && <img src={report.imageUrl} alt="מפגע" style={sidebarImageStyle} />}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' }}>
-                  <button onClick={() => handleApproveReport(report)} style={btnApproveStyle}>✅ אשר משימה</button>
-                  <button onClick={() => handleRejectReport(report.id)} style={btnRejectStyle}>🗑️ דחה</button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
+        <MapDrawingManager drawingMode={drawingMode} tempCoords={tempCoords} setTempCoords={setTempCoords} />
 
-      {/* מפת השליטה */}
-      <div style={{ flexGrow: 1, height: '100%', position: 'relative' }}>
-        <MapContainer center={CENTER} zoom={12} style={{ height: '100%', width: '100%' }}>
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <FitBounds points={points} />
-          
-          <MapDrawingManager drawingMode={drawingMode} tempCoords={tempCoords} setTempCoords={setTempCoords} />
+        {/* גזרות פוליגונים */}
+        {zones
+          .filter((zone) => zone && (selectedDriver === 'ALL' || zone.driver === selectedDriver))
+          .map((zone) => {
+            const zoneColor = getZoneColor(zone);
+            const positions = zone.coordinates?.map(pt => [pt.lat, pt.lng]) || [];
+            if (positions.length < 3) return null; 
+            return (
+              <Polygon key={zone.id} positions={positions} pathOptions={{ color: zoneColor, fillColor: zoneColor, fillOpacity: 0.2, weight: 3 }}>
+                <Popup>
+                  <div style={{ direction: 'rtl', textAlign: 'right', minWidth: '140px' }}>
+                    <strong>גזרה: {zone.name}</strong><br />
+                    <span style={{ fontSize: '12px', color: '#555' }}>👤 נהג: {zone.driver === 'ALL' || !zone.driver ? 'טרם שויך' : zone.driver}</span>
+                    <button onClick={() => handleDeleteZone(zone.id, zone.name)} style={{ background: '#e53935', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', marginTop: '8px', cursor: 'pointer', width: '100%' }}>מחק גזרה</button>
+                  </div>
+                </Popup>
+              </Polygon>
+            );
+          })}
 
-          {/* גזרות פוליגונים עם הגנת קריסה חכמה */}
-          {zones
-            .filter((zone) => zone && (selectedDriver === 'ALL' || zone.driver === selectedDriver))
-            .map((zone) => {
-              const zoneColor = getZoneColor(zone);
-              const positions = zone.coordinates?.map(pt => [pt.lat, pt.lng]) || [];
-              if (positions.length < 3) return null; // מדלג על גזרות שבורות מבלי להקריס מסך
-              return (
-                <Polygon key={zone.id} positions={positions} pathOptions={{ color: zoneColor, fillColor: zoneColor, fillOpacity: 0.2, weight: 3 }}>
-                  <Popup>
-                    <div style={{ direction: 'rtl', textAlign: 'right', minWidth: '140px' }}>
-                      <strong>גזרה: {zone.name}</strong><br />
-                      <span style={{ fontSize: '12px', color: '#555' }}>👤 נהג: {zone.driver === 'ALL' || !zone.driver ? 'טרם שויך' : zone.driver}</span>
-                      <button onClick={() => handleDeleteZone(zone.id, zone.name)} style={{ background: '#e53935', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', marginTop: '8px', cursor: 'pointer', width: '100%' }}>מחק גזרה</button>
+        {/* נקודות מכולה על המפה */}
+        <Pane name="top-points-pane" style={{ zIndex: 450 }}>
+          {points.map((p) => (
+            <CircleMarker key={p.id} center={[p.lat, p.lng]} radius={10} pathOptions={{ color: STATUS_COLORS[p.status] || '#1e88e5', fillColor: STATUS_COLORS[p.status] || '#1e88e5', fillOpacity: 0.85 }}>
+              <Popup minWidth={260}>
+                <div style={popupContainerStyle}>
+                  
+                  {editingPointId === p.id ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <input value={editData.address} onChange={(e) => setEditData({...editData, address: e.target.value})} style={popupInputStyle} />
+                      <button onClick={async () => { await updateDoc(doc(db, 'CollectionPoints', p.id), editData); setEditingPointId(null); }} style={{ background: '#43a047', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', fontWeight: 'bold' }}>שמור כתובת</button>
                     </div>
-                  </Popup>
-                </Polygon>
-              );
-            })}
-
-          {/* מרקרים */}
-          <Pane name="top-points-pane" style={{ zIndex: 450 }}>
-            {points.map((p) => (
-              <CircleMarker key={p.id} center={[p.lat, p.lng]} radius={10} pathOptions={{ color: STATUS_COLORS[p.status] || '#1e88e5', fillColor: STATUS_COLORS[p.status] || '#1e88e5', fillOpacity: 0.85 }}>
-                <Popup minWidth={260}>
-                  <div style={popupContainerStyle}>
-                    
-                    {editingPointId === p.id ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <input value={editData.address} onChange={(e) => setEditData({...editData, address: e.target.value})} style={popupInputStyle} />
-                        <button onClick={async () => { await updateDoc(doc(db, 'CollectionPoints', p.id), editData); setEditingPointId(null); }} style={{ background: '#43a047', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', fontWeight: 'bold' }}>שמור כתובת</button>
+                  ) : (
+                    <>
+                      <strong style={{ fontSize: '15px', color: '#1a237e', display: 'block', marginBottom: '2px' }}>{p.address}</strong>
+                      
+                      <div style={{ fontSize: '12px', color: '#555', marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '4px' }}>
+                        📋 סוג: {p.issueDescription || 'פינוי סדיר'}
+                        {p.note && (
+                          <div style={{ color: '#d32f2f', fontWeight: 'bold', marginTop: '6px', background: '#ffebee', padding: '6px', borderRadius: '4px', border: '1px solid #ffcdd2' }}>
+                            🛑 סיבת אי-פינוי: {p.note}
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <>
-                        <strong style={{ fontSize: '15px', color: '#1a237e', display: 'block', marginBottom: '2px' }}>{p.address}</strong>
-                        
-                        <div style={{ fontSize: '12px', color: '#555', marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '4px' }}>
-                          📋 סוג: {p.issueDescription || 'פינוי סדיר'}
-                          {p.note && (
-                            <div style={{ color: '#d32f2f', fontWeight: 'bold', marginTop: '6px', background: '#ffebee', padding: '6px', borderRadius: '4px', border: '1px solid #ffcdd2' }}>
-                              🛑 סיבת אי-פינוי: {p.note}
-                            </div>
+
+                      {/* סרגל סטטוסים */}
+                      <label style={popupLabelStyle}>🔄 עדכן מצב מכולה (מוקד):</label>
+                      <div style={statusGridStyle}>
+                        <button onClick={() => handleStatusChange(p.id, 'BLUE')} style={statusBtnStyle('#1976d2', p.status === 'BLUE' || !p.status)}>🔵 חדש</button>
+                        <button onClick={() => handleStatusChange(p.id, 'BROWN')} style={statusBtnStyle('#795548', p.status === 'BROWN')}>🟤 מלא</button>
+                        <button onClick={() => handleStatusChange(p.id, 'YELLOW')} style={statusBtnStyle('#fb8c00', p.status === 'YELLOW')}>⏳ טיפול</button>
+                        <button onClick={() => handleStatusChange(p.id, 'GREEN')} style={statusBtnStyle('#43a047', p.status === 'GREEN')}>✅ פונה</button>
+                        <button onClick={() => handleStatusChange(p.id, 'RED')} style={statusBtnStyle('#e53935', p.status === 'RED')}>🚨 חסום</button>
+                      </div>
+
+                      {/* קוביות תמונות */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '10px' }}>
+                        <div style={photoBoxStyle}>
+                          <div style={photoTitleStyle('#e65100')}>📸 לפני הפינוי</div>
+                          {p.imageUrlBefore || p.imageUrl ? (
+                            <a href={p.imageUrlBefore || p.imageUrl} target="_blank" rel="noreferrer">
+                              <img src={p.imageUrlBefore || p.imageUrl} alt="לפני" style={imgPreviewStyle} />
+                            </a>
+                          ) : (
+                            <div style={emptyPhotoPlaceholderStyle}>אין תמונה</div>
                           )}
                         </div>
 
-                        {/* סרגל סטטוסים */}
-                        <label style={popupLabelStyle}>🔄 עדכן מצב מכולה (מוקד):</label>
-                        <div style={statusGridStyle}>
-                          <button onClick={() => handleStatusChange(p.id, 'BLUE')} style={statusBtnStyle('#1976d2', p.status === 'BLUE' || !p.status)}>🔵 חדש</button>
-                          <button onClick={() => handleStatusChange(p.id, 'BROWN')} style={statusBtnStyle('#795548', p.status === 'BROWN')}>🟤 מלא</button>
-                          <button onClick={() => handleStatusChange(p.id, 'YELLOW')} style={statusBtnStyle('#fb8c00', p.status === 'YELLOW')}>⏳ טיפול</button>
-                          <button onClick={() => handleStatusChange(p.id, 'GREEN')} style={statusBtnStyle('#43a047', p.status === 'GREEN')}>✅ פונה</button>
-                          <button onClick={() => handleStatusChange(p.id, 'RED')} style={statusBtnStyle('#e53935', p.status === 'RED')}>🚨 חסום</button>
+                        <div style={photoBoxStyle}>
+                          <div style={photoTitleStyle('#2e7d32')}>📸 אחרי הפינוי</div>
+                          {p.imageUrlAfter ? (
+                            <a href={p.imageUrlAfter} target="_blank" rel="noreferrer">
+                              <img src={p.imageUrlAfter} alt="אחרי" style={imgPreviewStyle} />
+                            </a>
+                          ) : (
+                            <div style={emptyPhotoPlaceholderStyle}>אין תמונה</div>
+                          )}
                         </div>
+                      </div>
 
-                        {/* קוביות תמונות */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '10px' }}>
-                          <div style={photoBoxStyle}>
-                            <div style={photoTitleStyle('#e65100')}>📸 לפני הפינוי</div>
-                            {p.imageUrlBefore || p.imageUrl ? (
-                              <a href={p.imageUrlBefore || p.imageUrl} target="_blank" rel="noreferrer">
-                                <img src={p.imageUrlBefore || p.imageUrl} alt="לפני" style={imgPreviewStyle} />
-                              </a>
-                            ) : (
-                              <div style={emptyPhotoPlaceholderStyle}>אין תמונה</div>
-                            )}
-                          </div>
+                      {/* לחצן ניקוי תמונות */}
+                      {(p.imageUrlBefore || p.imageUrl || p.imageUrlAfter) && (
+                        <button onClick={() => handleClearPhotos(p.id)} style={btnClearPhotosStyle}>
+                          🖼️ נקה קבצי תמונות מהמכולה
+                        </button>
+                      )}
 
-                          <div style={photoBoxStyle}>
-                            <div style={photoTitleStyle('#2e7d32')}>📸 אחרי הפינוי</div>
-                            {p.imageUrlAfter ? (
-                              <a href={p.imageUrlAfter} target="_blank" rel="noreferrer">
-                                <img src={p.imageUrlAfter} alt="אחרי" style={imgPreviewStyle} />
-                              </a>
-                            ) : (
-                              <div style={emptyPhotoPlaceholderStyle}>אין תמונה</div>
-                            )}
-                          </div>
-                        </div>
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '12px', borderTop: '1px solid #eee', paddingTop: '8px' }}>
+                        <button onClick={() => { setEditingPointId(p.id); setEditData({ address: p.address, contactName: p.contactName || '', phone: p.phone || '' }); }} style={btnEditStyle}>✏️ ערוך</button>
+                        <button onClick={() => handleDelete(p.id)} style={btnDeleteStyle}>🗑️ מחק</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </Popup>
+            </CircleMarker>
+          ))}
+        </Pane>
+      </MapContainer>
 
-                        {/* לחצן ניקוי תמונות */}
-                        {(p.imageUrlBefore || p.imageUrl || p.imageUrlAfter) && (
-                          <button onClick={() => handleClearPhotos(p.id)} style={btnClearPhotosStyle}>
-                            🖼️ נקה קבצי תמונות מהמכולה
-                          </button>
-                        )}
+      {/* 🛠️ לוח הניהול הראשי והמאוחד של המפקח (בצד שמאל) - כולל כעת את הדיווחים מתחתיו! */}
+      <div style={panelStyle}>
+        <div style={{ fontWeight: 'bold', marginBottom: '4px', fontSize: '15px', color: '#1a237e', borderBottom: '2px solid #e0e0e0', paddingBottom: '6px', textAlign: 'center' }}>לוח בקרת מפקח</div>
+        
+        <div style={sectionHeaderStyle}>סינון לפי נהג איסוף</div>
+        <select value={selectedDriver} onChange={(e) => setSelectedDriver(e.target.value)} style={dropdownStyle}>
+          <option value="ALL">🌍 כל הנהגים</option>
+          <option value="נהג 1">🚚 נהג 1</option>
+          <option value="נהג 2">🚚 נהג 2</option>
+          <option value="נהג 3">🚚 נהג 3</option>
+        </select>
+        
+        <div style={{ ...sectionHeaderStyle, marginTop: '12px' }}>נקודות איסוף</div>
+        <button onClick={() => setShowForm(!showForm)} style={panelButtonStyle('#1976d2')}>{showForm ? '✖ סגור טופס הוספה' : '➕ הוסף נקודה ידנית'}</button>
+        
+        <div style={{ ...sectionHeaderStyle, marginTop: '12px' }}>ניהול גזרות</div>
+        {drawingMode === null ? (
+          <button onClick={() => { setDrawingMode('polygon'); setTempCoords([]); }} style={panelButtonStyle('#2e7d32')}>📐 הגדרת גזרה חדשה</button>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ fontSize: '11px', color: '#333', backgroundColor: '#fff3cd', padding: '6px', borderRadius: '4px', border: '1px solid #ffeeba', lineHeight: '1.4' }}>קליק על המפה לבניית פוליגון.</div>
+            {tempCoords.length >= 3 && <button onClick={savePolygonZone} style={panelButtonStyle('#2e7d32')}>✅ שמור אזור ({tempCoords.length} נק')</button>}
+            <button onClick={() => { setDrawingMode(null); setTempCoords([]); }} style={panelButtonStyle('#666')}>❌ ביטול ציור</button>
+          </div>
+        )}
 
-                        <div style={{ display: 'flex', gap: '6px', marginTop: '12px', borderTop: '1px solid #eee', paddingTop: '8px' }}>
-                          <button onClick={() => { setEditingPointId(p.id); setEditData({ address: p.address, contactName: p.contactName || '', phone: p.phone || '' }); }} style={btnEditStyle}>✏️ ערוך</button>
-                          <button onClick={() => handleDelete(p.id)} style={btnDeleteStyle}>🗑️ מחק</button>
-                        </div>
-                      </>
-                    )}
+        {/* 📥 המעבר המבוקש: תור דיווחי האזרחים משולב כאן בצד שמאל מתחת לכלים! */}
+        <div style={{ marginTop: '16px', borderTop: '2px solid #b71c1c', paddingTop: '12px' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#b71c1c', marginBottom: '8px' }}>
+            📥 דיווחים להערכה ({pendingReports.length})
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto' }}>
+            {pendingReports.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#888', fontSize: '11px', padding: '16px 4px', background: '#f9f9f9', borderRadius: '6px', border: '1px dashed #ccc' }}>
+                אין דיווחים ממתינים כעת ✨
+              </div>
+            ) : (
+              pendingReports.map((report) => (
+                <div key={report.id} style={reportCardStyle}>
+                  <div style={{ fontWeight: 'bold', fontSize: '12px', color: '#1a237e', marginBottom: '2px' }}>📍 {report.address || 'ללא כתובת'}</div>
+                  <div style={{ fontSize: '11px', color: '#333', marginBottom: '6px' }}><strong>תיאור:</strong> {report.issueDescription || 'ללא פירוט'}</div>
+                  {report.imageUrl && <img src={report.imageUrl} alt="מפגע" style={sidebarImageStyle} />}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginTop: '4px' }}>
+                    <button onClick={() => handleApproveReport(report)} style={btnApproveStyle}>✅ אשר</button>
+                    <button onClick={() => handleRejectReport(report.id)} style={btnRejectStyle}>🗑️ דחה</button>
                   </div>
-                </Popup>
-              </CircleMarker>
-            ))}
-          </Pane>
-        </MapContainer>
-
-        {/* לוח הניהול הראשי */}
-        <div style={panelStyle}>
-          <div style={{ fontWeight: 'bold', marginBottom: '4px', fontSize: '15px', color: '#1a237e', borderBottom: '2px solid #e0e0e0', paddingBottom: '6px', textAlign: 'center' }}>לוח בקרת מפקח</div>
-          
-          <div style={sectionHeaderStyle}>סינון לפי נהג איסוף</div>
-          <select value={selectedDriver} onChange={(e) => setSelectedDriver(e.target.value)} style={dropdownStyle}>
-            <option value="ALL">🌍 כל הנהגים</option>
-            <option value="נהג 1">🚚 נהג 1</option>
-            <option value="נהג 2">🚚 נהג 2</option>
-            <option value="נהג 3">🚚 נהג 3</option>
-          </select>
-          
-          <div style={{ ...sectionHeaderStyle, marginTop: '12px' }}>נקודות איסוף</div>
-          <button onClick={() => setShowForm(!showForm)} style={panelButtonStyle('#1976d2')}>{showForm ? '✖ סגור טופס הוספה' : '➕ הוסף נקודה ידנית'}</button>
-          
-          <div style={{ ...sectionHeaderStyle, marginTop: '12px' }}>ניהול גזרות</div>
-          {drawingMode === null ? (
-            <button onClick={() => { setDrawingMode('polygon'); setTempCoords([]); }} style={panelButtonStyle('#2e7d32')}>📐 הגדרת גזרה חדשה</button>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ fontSize: '11px', color: '#333', backgroundColor: '#fff3cd', padding: '6px', borderRadius: '4px', border: '1px solid #ffeeba', lineHeight: '1.4' }}>קליק על המפה לבניית פוליגון.</div>
-              {tempCoords.length >= 3 && <button onClick={savePolygonZone} style={panelButtonStyle('#2e7d32')}>✅ שמור אזור ({tempCoords.length} נק')</button>}
-              <button onClick={() => { setDrawingMode(null); setTempCoords([]); }} style={panelButtonStyle('#666')}>❌ ביטול ציור</button>
-            </div>
-          )}
+                </div>
+              ))
+            )}
+          </div>
         </div>
+
       </div>
 
       {showForm && <AddPointForm onClose={() => setShowForm(false)} />}
@@ -334,21 +335,19 @@ export default function MapView() {
   );
 }
 
-// עיצובים
+// עיצובים מיושרים ומותאמים לטור שמאלי יחיד
 const sectionHeaderStyle = { fontSize: '12px', fontWeight: 'bold', color: '#555', marginBottom: '4px', marginTop: '6px' };
 const dropdownStyle = { width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '13px', backgroundColor: '#f8f9fa', color: '#333', cursor: 'pointer', direction: 'rtl' };
-const panelStyle = { position: 'absolute', top: '20px', left: '20px', zIndex: 1000, background: 'white', padding: '14px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '4px', width: '220px', maxHeight: '90vh', overflowY: 'auto', direction: 'rtl', textAlign: 'right', boxSizing: 'border-box' };
+
+// הרחבנו מעט את הלוח ל-240 פיקסלים כדי שהכול ישב מרווח ויפה
+const panelStyle = { position: 'absolute', top: '20px', left: '20px', zIndex: 1000, background: 'white', padding: '14px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '4px', width: '240px', maxHeight: '92vh', overflowY: 'auto', direction: 'rtl', textAlign: 'right', boxSizing: 'border-box' };
 const panelButtonStyle = (color) => ({ background: color, color: 'white', border: 'none', padding: '9px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', textAlign: 'center', width: '100%' });
-const sidebarStyle = { width: '340px', height: '100%', background: '#ffffff', boxShadow: '-2px 0 15px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', zIndex: 1050, boxSizing: 'border-box', padding: '16px' };
-const sidebarTitleStyle = { margin: 0, fontSize: '16px', color: '#1a237e', fontWeight: 'bold' };
-const sidebarSubStyle = { margin: '3px 0 0 0', fontSize: '11px', color: '#666' };
-const dividerStyle = { border: 'none', borderTop: '1px solid #e0e0e0', margin: '10px 0' };
-const sidebarListContainerStyle = { flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' };
-const emptyStateStyle = { textAlign: 'center', color: '#888', fontSize: '12px', padding: '24px 10px', background: '#f9f9f9', borderRadius: '8px', border: '1px dashed #ccc' };
-const reportCardStyle = { background: '#f5f7fa', border: '1px solid #e0e4ec', borderRadius: '8px', padding: '10px' };
-const sidebarImageStyle = { width: '100%', maxHeight: '90px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ddd', marginTop: '4px', marginBottom: '4px' };
-const btnApproveStyle = { background: '#2e7d32', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' };
-const btnRejectStyle = { background: '#c62828', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' };
+
+const reportCardStyle = { background: '#f5f7fa', border: '1px solid #e0e4ec', borderRadius: '6px', padding: '8px', boxSizing: 'border-box' };
+const sidebarImageStyle = { width: '100%', maxHeight: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ddd', marginTop: '4px', marginBottom: '4px' };
+const btnApproveStyle = { background: '#2e7d32', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '5px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center' };
+const btnRejectStyle = { background: '#c62828', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '5px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center' };
+
 const popupContainerStyle = { minWidth: '240px', direction: 'rtl', textAlign: 'right', fontFamily: 'sans-serif' };
 const popupInputStyle = { padding: '5px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px', width: '100%', boxSizing: 'border-box' };
 const popupLabelStyle = { display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#333' };
