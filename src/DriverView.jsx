@@ -206,7 +206,7 @@ export default function DriverView() {
 
               </div>
             </Popup>
-          </Marker>
+          </CircleMarker>
         ))}
       </MapContainer>
     </div>
