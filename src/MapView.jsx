@@ -8,14 +8,13 @@ import AddPointForm from './AddPointForm';
 
 const CENTER = [32.0853, 34.7818];
 
-// 🎨 עדכון מערכת הצבעים: RED הפך ללא פונה, BROWN הפך למלא
 const STATUS_COLORS = { BLUE: '#1e88e5', BROWN: '#795548', YELLOW: '#fb8c00', GREEN: '#43a047', RED: '#e53935' };
 const STATUS_LABELS = { BLUE: 'חדש / מאושר', BROWN: 'מלא / דחוף', YELLOW: 'בטיפול', GREEN: 'פונה / ריק', RED: 'לא פונה' };
 const ZONE_COLORS = ['#e53935', '#1e88e5', '#8e24aa', '#fdd835', '#fb8c00', '#00acc1', '#d81b60', '#3949ab', '#00897b', '#f4511e'];
 
 const getZoneColor = (zone) => {
-  if (zone.color) return zone.color;
-  const name = zone.name || '';
+  if (zone?.color) return zone.color;
+  const name = zone?.name || '';
   let hash = 0;
   for (let i = 0; i < name.length; i++) { hash = name.charCodeAt(i) + ((hash << 5) - hash); }
   return ZONE_COLORS[Math.abs(hash) % ZONE_COLORS.length];
@@ -65,7 +64,7 @@ export default function MapView() {
     const unsub = onSnapshot(collection(db, 'CollectionPoints'), (snapshot) => {
       const data = snapshot.docs
         .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((p) => typeof p.lat === 'number' && typeof p.lng === 'number');
+        .filter((p) => p && typeof p.lat === 'number' && typeof p.lng === 'number');
       setPoints(data);
     });
     return () => unsub();
@@ -90,7 +89,7 @@ export default function MapView() {
   const handleApproveReport = async (report) => {
     try {
       await addDoc(collection(db, 'CollectionPoints'), {
-        address: report.address,
+        address: report.address || 'ללא כתובת',
         issueDescription: report.issueDescription || 'דיווח אזרח',
         contactName: report.contactName || 'אזרח',
         phone: report.phone || '',
@@ -125,16 +124,14 @@ export default function MapView() {
     } catch (e) {}
   };
 
-  // 🛠️ ניהול חלונית ההערה במקרה של שינוי סטטוס ל"לא פונה" מלוח הבקרה
   const handleStatusChange = async (id, newStatus) => {
     let updateData = { status: newStatus };
     
     if (newStatus === 'RED') {
       const comment = prompt('⚠️ אנא הזן סיבה או הערה מדוע המכולה לא פונתה (לדוגמה: רכב חוסם, פח שבור):');
-      if (comment === null) return; // המשתמש לחץ ביטול - השינוי לא יתבצע
+      if (comment === null) return; 
       updateData.note = comment;
     } else {
-      // אם משנים לסטטוס אחר (למשל פונה), מנקים את הערת ה"לא פונה" הישנה
       updateData.note = '';
     }
 
@@ -183,8 +180,8 @@ export default function MapView() {
           ) : (
             pendingReports.map((report) => (
               <div key={report.id} style={reportCardStyle}>
-                <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#1a237e', marginBottom: '4px' }}>📍 {report.address}</div>
-                <div style={{ fontSize: '12px', color: '#333', marginBottom: '6px' }}><strong>תיאור:</strong> {report.issueDescription}</div>
+                <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#1a237e', marginBottom: '4px' }}>📍 {report.address || 'ללא כתובת'}</div>
+                <div style={{ fontSize: '12px', color: '#333', marginBottom: '6px' }}><strong>תיאור:</strong> {report.issueDescription || 'ללא פירוט'}</div>
                 {report.imageUrl && <img src={report.imageUrl} alt="מפגע" style={sidebarImageStyle} />}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' }}>
                   <button onClick={() => handleApproveReport(report)} style={btnApproveStyle}>✅ אשר משימה</button>
@@ -204,13 +201,15 @@ export default function MapView() {
           
           <MapDrawingManager drawingMode={drawingMode} tempCoords={tempCoords} setTempCoords={setTempCoords} />
 
-          {/* גזרות פוליגונים */}
+          {/* גזרות פוליגונים עם הגנת קריסה חכמה */}
           {zones
-            .filter((zone) => selectedDriver === 'ALL' || zone.driver === selectedDriver)
+            .filter((zone) => zone && (selectedDriver === 'ALL' || zone.driver === selectedDriver))
             .map((zone) => {
               const zoneColor = getZoneColor(zone);
+              const positions = zone.coordinates?.map(pt => [pt.lat, pt.lng]) || [];
+              if (positions.length < 3) return null; // מדלג על גזרות שבורות מבלי להקריס מסך
               return (
-                <Polygon key={zone.id} positions={zone.coordinates.map(pt => [pt.lat, pt.lng])} pathOptions={{ color: zoneColor, fillColor: zoneColor, fillOpacity: 0.2, weight: 3 }}>
+                <Polygon key={zone.id} positions={positions} pathOptions={{ color: zoneColor, fillColor: zoneColor, fillOpacity: 0.2, weight: 3 }}>
                   <Popup>
                     <div style={{ direction: 'rtl', textAlign: 'right', minWidth: '140px' }}>
                       <strong>גזרה: {zone.name}</strong><br />
@@ -240,7 +239,6 @@ export default function MapView() {
                         
                         <div style={{ fontSize: '12px', color: '#555', marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '4px' }}>
                           📋 סוג: {p.issueDescription || 'פינוי סדיר'}
-                          {/* 🚨 תצוגת ההערה הדינמית בתוך הבלון במידה וקיימת */}
                           {p.note && (
                             <div style={{ color: '#d32f2f', fontWeight: 'bold', marginTop: '6px', background: '#ffebee', padding: '6px', borderRadius: '4px', border: '1px solid #ffcdd2' }}>
                               🛑 סיבת אי-פינוי: {p.note}
@@ -248,7 +246,7 @@ export default function MapView() {
                           )}
                         </div>
 
-                        {/* סרגל עדכון סטטוסים מורחב ל-5 כפתורים */}
+                        {/* סרגל סטטוסים */}
                         <label style={popupLabelStyle}>🔄 עדכן מצב מכולה (מוקד):</label>
                         <div style={statusGridStyle}>
                           <button onClick={() => handleStatusChange(p.id, 'BLUE')} style={statusBtnStyle('#1976d2', p.status === 'BLUE' || !p.status)}>🔵 חדש</button>
@@ -337,6 +335,10 @@ export default function MapView() {
 }
 
 // עיצובים
+const sectionHeaderStyle = { fontSize: '12px', fontWeight: 'bold', color: '#555', marginBottom: '4px', marginTop: '6px' };
+const dropdownStyle = { width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '13px', backgroundColor: '#f8f9fa', color: '#333', cursor: 'pointer', direction: 'rtl' };
+const panelStyle = { position: 'absolute', top: '20px', left: '20px', zIndex: 1000, background: 'white', padding: '14px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '4px', width: '220px', maxHeight: '90vh', overflowY: 'auto', direction: 'rtl', textAlign: 'right', boxSizing: 'border-box' };
+const panelButtonStyle = (color) => ({ background: color, color: 'white', border: 'none', padding: '9px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', textAlign: 'center', width: '100%' });
 const sidebarStyle = { width: '340px', height: '100%', background: '#ffffff', boxShadow: '-2px 0 15px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', zIndex: 1050, boxSizing: 'border-box', padding: '16px' };
 const sidebarTitleStyle = { margin: 0, fontSize: '16px', color: '#1a237e', fontWeight: 'bold' };
 const sidebarSubStyle = { margin: '3px 0 0 0', fontSize: '11px', color: '#666' };
@@ -350,11 +352,8 @@ const btnRejectStyle = { background: '#c62828', color: '#ffffff', border: 'none'
 const popupContainerStyle = { minWidth: '240px', direction: 'rtl', textAlign: 'right', fontFamily: 'sans-serif' };
 const popupInputStyle = { padding: '5px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px', width: '100%', boxSizing: 'border-box' };
 const popupLabelStyle = { display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#333' };
-
-// עדכון גריד סטטוסים ל-5 עמודות שיתפרסו יפה
 const statusGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px', marginBottom: '10px' };
 const statusBtnStyle = (color, active) => ({ background: active ? color : '#f5f5f5', color: active ? 'white' : '#555', border: active ? 'none' : '1px solid #ccc', padding: '8px 0', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center' });
-
 const photoBoxStyle = { background: '#f9f9f9', border: '1px solid #e0e0e0', padding: '5px', borderRadius: '6px', boxSizing: 'border-box', textAlign: 'center' };
 const photoTitleStyle = (color) => ({ fontSize: '11px', fontWeight: 'bold', color: color, marginBottom: '4px', textAlign: 'right' });
 const imgPreviewStyle = { width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ddd' };
