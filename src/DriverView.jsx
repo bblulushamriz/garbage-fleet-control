@@ -8,7 +8,6 @@ import 'leaflet/dist/leaflet.css';
 
 const CENTER = [32.0853, 34.7818];
 
-// 🎨 עדכון צבעי סיכות הנהג: BROWN למלא, RED ללא פונה
 const STATUS_COLORS = { BLUE: '#1e88e5', BROWN: '#795548', YELLOW: '#fb8c00', GREEN: '#43a047', RED: '#e53935' };
 const ZONE_COLORS = ['#e53935', '#1e88e5', '#8e24aa', '#fdd835', '#fb8c00', '#00acc1', '#d81b60', '#3949ab', '#00897b', '#f4511e'];
 
@@ -71,16 +70,16 @@ export default function DriverView() {
     return () => unsub();
   }, []);
 
-  // 3. 🛠️ ניהול חלונית ההערה במקרה של שינוי סטטוס ל"לא פונה" מצד הנהג בשטח
+  // 3. עדכון סטטוס מכולה מהשטח כולל הערה דינמית
   const handleStatusChange = async (pointId, newStatus) => {
     let updateData = { status: newStatus };
 
     if (newStatus === 'RED') {
       const comment = prompt('⚠️ דיווח אי-פינוי: אנא הקלד את סיבת החסימה או התקלה עבור המוקד:');
-      if (comment === null) return; // לחיצה על ביטול תעצור את הפעולה
+      if (comment === null) return; 
       updateData.note = comment;
     } else {
-      updateData.note = ''; // ניקוי ההערה בסטטוסים תקינים
+      updateData.note = ''; 
     }
 
     try {
@@ -90,7 +89,7 @@ export default function DriverView() {
     }
   };
 
-  // 4. העלאת תמונות תיעוד
+  // 4. העלאת תמונות תיעוד ל-Storage
   const handlePhotoUpload = async (pointId, file, type) => {
     if (!file) return;
     const loadKey = `${pointId}_${type}`;
@@ -125,7 +124,7 @@ export default function DriverView() {
       
       {/* בר עליון צף */}
       <div style={topBarStyle}>
-        <div style={{ fontWeight: 'bold', fontSize: '15px', color: 'white' }}>🚚 מפת משימות וגזרות שטח</div>
+        <div style={{ fontWeight: 'bold', fontSize: '15px', color: 'white' }}>🚚 mפת משימות וגזרות שטח</div>
         <select value={selectedDriver} onChange={(e) => setSelectedDriver(e.target.value)} style={selectStyle}>
           <option value="נהג 1">צוות איסוף 1 (נהג 1)</option>
           <option value="נהג 2">צוות איסוף 2 (נהג 2)</option>
@@ -165,7 +164,6 @@ export default function DriverView() {
                 
                 <div style={{ fontSize: '12px', color: '#555', marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '4px' }}>
                   📋 מכולה: {p.issueDescription || 'פינוי סדיר'}
-                  {/* הצגת סיבת האי-פינוי לנהג במידה והוקלדה */}
                   {p.note && (
                     <div style={{ color: '#d32f2f', fontWeight: 'bold', marginTop: '6px', background: '#ffebee', padding: '6px', borderRadius: '4px' }}>
                       🛑 הערת אי-פינוי: {p.note}
@@ -173,7 +171,7 @@ export default function DriverView() {
                   )}
                 </div>
                 
-                {/* סרגל עדכון סטטוסים לנהג בשטח הכולל 4 מצבים (מלא חום, לא פונה אדום) */}
+                {/* סרגל עדכון סטטוסים */}
                 <label style={labelStyle}>🔄 עדכן מצב מכולה:</label>
                 <div style={statusGridStyle}>
                   <button onClick={() => handleStatusChange(p.id, 'BROWN')} style={statusBtnStyle('#795548', p.status === 'BROWN')}>🟤 מלא</button>
@@ -220,11 +218,8 @@ const topBarStyle = { position: 'absolute', top: '12px', left: '12px', right: '1
 const selectStyle = { padding: '6px 10px', borderRadius: '6px', border: 'none', fontSize: '13px', fontWeight: 'bold', color: '#1a237e', background: 'white', outline: 'none', cursor: 'pointer' };
 const popupContainerStyle = { direction: 'rtl', textAlign: 'right', fontFamily: 'sans-serif', padding: '2px', boxSizing: 'border-box' };
 const labelStyle = { display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#333' };
-
-// עדכון גריד נהג ל-4 עמודות מסודרות בשורה אחת
 const statusGridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px', marginBottom: '12px' };
 const statusBtnStyle = (color, active) => ({ background: active ? color : '#f5f5f5', color: active ? 'white' : '#555', border: active ? 'none' : '1px solid #ccc', padding: '9px 0', borderRadius: '5px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center' });
-
 const photoBoxStyle = { background: '#fcfcfc', border: '1px solid #e2e2e2', padding: '6px', borderRadius: '6px', marginBottom: '8px', boxSizing: 'border-box' };
 const photoTitleStyle = (color) => ({ fontSize: '11px', fontWeight: 'bold', color: color, marginBottom: '4px' });
 const imgPreviewStyle = { width: '100%', maxHeight: '90px', objectFit: 'cover', borderRadius: '4px', marginBottom: '4px', border: '1px solid #ddd' };
