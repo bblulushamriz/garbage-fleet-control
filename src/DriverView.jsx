@@ -1,167 +1,179 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup, Polygon } from 'react-leaflet';
+import { db, storage } from './firebase';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from './firebase';
-import 'leaflet/dist/leaflet.css';
-
-const CENTER = [32.0853, 34.7818];
-
-const STATUS_COLORS = { BLUE: '#1e88e5', RED: '#e53935', YELLOW: '#fb8c00', GREEN: '#43a047' };
-const STATUS_LABELS = { BLUE: 'חדש / לא ידוע', RED: 'מלא / דחוף', YELLOW: 'חלקי', GREEN: 'פונה / ריק' };
-
-// פונקציה גיאוגרפית שבודקת האם נקודה נמצאת בתוך פוליגון
-function isPointInPolygon(point, polygonCoords) {
-  const x = point[0], y = point[1];
-  let inside = false;
-  for (let i = 0, j = polygonCoords.length - 1; i < polygonCoords.length; j = i++) {
-    const xi = polygonCoords[i].lat, yi = polygonCoords[i].lng;
-    const xj = polygonCoords[j].lat, yj = polygonCoords[j].lng;
-    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
 
 export default function DriverView() {
-  const [driver, setDriver] = useState(localStorage.getItem('assigned_driver') || null);
   const [points, setPoints] = useState([]);
-  const [zones, setZones] = useState([]);
-  const [uploadingId, setUploadingId] = useState(null);
+  const [selectedDriver, setSelectedDriver] = useState('נהג 1');
+  const [expandedPointId, setExpandedPointId] = useState(null);
+  const [loadingMap, setLoadingMap] = useState({}); // מעקב אחרי סטטוס העלאה לכל נקודה
 
-  // שמירת הנהג בזיכרון המכשיר שלא יצטרך לבחור כל פעם מחדש
-  const handleSelectDriver = (name) => {
-    setDriver(name);
-    localStorage.setItem('assigned_driver', name);
-  };
-
-  // טעינת נתונים
+  // טעינת כל הנקודות מה-Firestore
   useEffect(() => {
-    const unsubPoints = onSnapshot(collection(db, 'CollectionPoints'), (snap) => {
-      setPoints(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const unsub = onSnapshot(collection(db, 'CollectionPoints'), (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setPoints(data);
     });
-    const unsubZones = onSnapshot(collection(db, 'Zones'), (snap) => {
-      setZones(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    return () => { unsubPoints(); unsubZones(); };
+    return () => unsub();
   }, []);
 
-  // סינון הגזרות השייכות לנהג זה
-  const myZones = zones.filter(z => z.driver === driver);
-
-  // סינון אוטומטי של נקודות שנמצאות פיזית בתוך הגזרות של הנהג
-  const myPoints = points.filter(p => {
-    return myZones.some(zone => isPointInPolygon([p.lat, p.lng], zone.coordinates));
-  });
-
-  // פונקציית העלאת תמונה ל-Firebase Storage ועדכון הנקודה
-  const handlePhotoUpload = async (pointId, file) => {
+  // פונקציה חכמה להעלאת תמונה (לפני או אחרי) ישירות ל-Storage ועדכון ה-Firestore
+  const handlePhotoUpload = async (pointId, file, type) => {
     if (!file) return;
-    setUploadingId(pointId);
+
+    // הגדרת מפתח ייחודי בסטייט הטעינה (למשל: pointId_before)
+    const loadKey = `${pointId}_${type}`;
+    setLoadingMap(prev => ({ ...prev, [loadKey]: true }));
+
     try {
-      const fileRef = ref(storage, `driver_reports/${pointId}_${Date.now()}.jpg`);
+      // 1. העלאת הקובץ לתיקייה ייעודית בענן לפי סוג הצילום
+      const fileRef = ref(storage, `driver_reports/${pointId}_${type}_${Date.now()}`);
       await uploadBytes(fileRef, file);
-      const imageUrl = await getDownloadURL(fileRef);
+      const downloadUrl = await getDownloadURL(fileRef);
+
+      // 2. עדכון השדה המתאים ב-Firestore (imageUrlBefore או imageUrlAfter)
+      const fieldToUpdate = type === 'before' ? 'imageUrlBefore' : 'imageUrlAfter';
       
-      // עדכון ה-URL של התמונה וזמן הדיווח בתוך הנקודה ב-Firestore
       await updateDoc(doc(db, 'CollectionPoints', pointId), {
-        imageUrl: imageUrl,
-        reportedAt: new Date()
+        [fieldToUpdate]: downloadUrl
       });
-      alert("התמונה הועלתה והתעדכנה במערכת הראשית!");
-    } catch (e) {
-      console.error(e);
-      alert("שגיאה בהעלאת התמונה. ודא שרכיב ה-Storage מופעל ב-Firebase.");
+
+      alert(`תמונת "${type === 'before' ? 'לפני' : 'אחרי'}" הועלתה והתעדכנה בהצלחה!`);
+    } catch (error) {
+      console.error("Error uploading photo:", error);
+      alert("שגיאה בהעלאת התמונה. ודא שחוקי ה-Storage פתוחים.");
     } finally {
-      setUploadingId(null);
+      setLoadingMap(prev => ({ ...prev, [loadKey]: false }));
     }
   };
 
-  const handleStatusChange = async (id, newStatus) => {
-    await updateDoc(doc(db, 'CollectionPoints', id), { status: newStatus });
+  // עדכון מהיר של סטטוס המכולה על ידי הנהג
+  const handleStatusChange = async (pointId, newStatus) => {
+    try {
+      await updateDoc(doc(db, 'CollectionPoints', pointId), { status: newStatus });
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  // מסך א': בחירת נהג (מוצג רק בפעם הראשונה)
-  if (!driver) {
-    return (
-      <div style={loginContainerStyle}>
-        <div style={loginCardStyle}>
-          <h2>🚚 כניסת נהג איסוף</h2>
-          <p>בחר את שמך כדי לקבל את מפת הגזרות האישית שלך:</p>
-          <button onClick={() => handleSelectDriver('נהג 1')} style={loginButtonStyle('#1e88e5')}>🚚 נהג 1</button>
-          <button onClick={() => handleSelectDriver('נהג 2')} style={loginButtonStyle('#fb8c00')}>🚚 נהג 2</button>
-          <button onClick={() => handleSelectDriver('נהג 3')} style={loginButtonStyle('#43a047')}>🚚 נהג 3</button>
-        </div>
-      </div>
-    );
-  }
-
-  // מסך ב': ממשק העבודה של הנהג בשטח
   return (
-    <div style={{ position: 'relative', height: '100vh', width: '100%', fontFamily: 'sans-serif', direction: 'rtl' }}>
-      {/* שורת כותרת עליונה */}
-      <div style={topBarStyle}>
-        <span>שלום, <b>{driver}</b> 🛠️ ({myPoints.length} נקודות בגזרה שלך)</span>
-        <button onClick={() => { setDriver(null); localStorage.removeItem('assigned_driver'); }} style={logoutButtonStyle}>החלף נהג</button>
+    <div style={containerStyle}>
+      {/* כותרת עליונה */}
+      <div style={headerStyle}>
+        <h2 style={{ margin: 0, fontSize: '20px' }}>🚚 ממשק נהג שטח</h2>
+        <select value={selectedDriver} onChange={(e) => setSelectedDriver(e.target.value)} style={driverSelectStyle}>
+          <option value="נהג 1">צוות איסוף 1 (נהג 1)</option>
+          <option value="נהג 2">צוות איסוף 2 (נהג 2)</option>
+          <option value="נהג 3">צוות איסוף 3 (נהג 3)</option>
+        </select>
       </div>
 
-      <MapContainer center={CENTER} zoom={13} style={{ height: '100%', width: '100%' }}>
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-        {/* הצגת הגזרות של הנהג בלבד */}
-        {myZones.map((zone) => (
-          <Polygon key={zone.id} positions={zone.coordinates.map(pt => [pt.lat, pt.lng])} pathOptions={{ color: zone.color, fillColor: zone.color, fillOpacity: 0.15, weight: 2 }} />
-        ))}
-
-        {/* הצגת הנקודות שבתוך הגזרה שלו בלבד */}
-        {myPoints.map((p) => (
-          <CircleMarker key={p.id} center={[p.lat, p.lng]} radius={12} pathOptions={{ color: STATUS_COLORS[p.status] || '#1e88e5', fillColor: STATUS_COLORS[p.status] || '#1e88e5', fillOpacity: 0.85 }}>
-            <Popup>
-              <div style={{ textAlign: 'right', minWidth: '190px' }}>
-                <strong style={{ fontSize: '14px' }}>{p.address}</strong><br />
-                <span style={{ fontSize: '12px', color: '#666' }}>איש קשר: {p.contactName} ({p.phone})</span>
-                
-                <div style={{ marginTop: '10px', borderTop: '1px solid #eee', paddingTop: '8px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: 'bold' }}>עדכן סטטוס פינוי:</label>
-                  <select value={p.status || 'BLUE'} onChange={(e) => handleStatusChange(p.id, e.target.value)} style={selectStyle}>
-                    {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
+      {/* רשימת המשימות של הנהג */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '14px' }}>
+        {points.length === 0 ? (
+          <div style={{ textAlign: 'center', color: '#666', padding: '20px' }}>טוען משימות מהמוקד העירוני...</div>
+        ) : (
+          points.map((p) => {
+            const isExpanded = expandedPointId === p.id;
+            return (
+              <div key={p.id} style={cardStyle(p.status)}>
+                {/* חלק עליון של הכרטיסייה (תמיד גלוי) */}
+                <div onClick={() => setExpandedPointId(isExpanded ? null : p.id)} style={cardHeaderStyle}>
+                  <div>
+                    <strong style={{ fontSize: '15px', color: '#222' }}>{p.address}</strong>
+                    <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>📋 מפגע: {p.issueDescription || 'פינוי רגיל'}</div>
+                  </div>
+                  <div style={badgeStyle(p.status)}>
+                    {p.status === 'RED' ? '🚨 דחוף' : p.status === 'YELLOW' ? '⏳ בטיפול' : p.status === 'GREEN' ? '✅ פונה' : '🔵 חדש'}
+                  </div>
                 </div>
 
-                {/* כפתור צילום תמונה מהנייד */}
-                <div style={{ marginTop: '10px' }}>
-                  <label style={photoLabelStyle(uploadingId === p.id)}>
-                    {uploadingId === p.id ? '🔄 מעלה תמונה...' : '📸 צלם תמונת מצב'}
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      capture="environment" // פותח את המצלמה האחורית בנייד אוטומטית!
-                      disabled={uploadingId === p.id}
-                      onChange={(e) => handlePhotoUpload(p.id, e.target.files[0])} 
-                      style={{ display: 'none' }} 
-                    />
-                  </label>
-                </div>
+                {/* חלק תחתון של הכרטיסייה (נפתח בלחיצה) */}
+                {isExpanded && (
+                  <div style={cardBodyStyle}>
+                    <hr style={{ border: 'none', borderTop: '1px solid #eee', margin: '10px 0' }} />
+                    
+                    {/* שליטה בסטטוס המשימה */}
+                    <label style={labelStyle}>🔄 עדכן סטטוס מכולה מהשטח:</label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+                      <button onClick={() => handleStatusChange(p.id, 'RED')} style={statusButtonStyle('#e53935', p.status === 'RED')}>🚨 מלא/דחוף</button>
+                      <button onClick={() => handleStatusChange(p.id, 'YELLOW')} style={statusButtonStyle('#fb8c00', p.status === 'YELLOW')}>⏳ בטיפול</button>
+                      <button onClick={() => handleStatusChange(p.id, 'GREEN')} style={statusButtonStyle('#43a047', p.status === 'GREEN')}>✅ פונה וריק</button>
+                    </div>
 
-                {p.imageUrl && (
-                  <div style={{ marginTop: '8px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '11px', color: '#43a047' }}>✅ קיימת תמונה במערכת</span>
+                    {/* 📸 שדה 1: צילום תמונה ל-פני הפינוי */}
+                    <div style={{ marginBottom: '14px', background: '#f9f9f9', padding: '10px', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+                      <label style={labelStyle}>📸 שלב א': תמונה לפני הפינוי *</label>
+                      
+                      {p.imageUrlBefore || p.imageUrl ? ( // גיבוי לשדה הישן במידה וקיים
+                        <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                          <img src={p.imageUrlBefore || p.imageUrl} alt="לפני" style={previewImageStyle} />
+                        </div>
+                      ) : null}
+
+                      <label style={fileLabelStyle(loadingMap[`${p.id}_before`])}>
+                        {loadingMap[`${p.id}_before`] ? '🔄 מעלה תמונת לפני...' : (p.imageUrlBefore || p.imageUrl ? '📷 החלף תמונת לפני' : '📷 צלם מכולה מלאה (לפני)')}
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          capture="environment" 
+                          disabled={loadingMap[`${p.id}_before`]}
+                          onChange={(e) => handlePhotoUpload(p.id, e.target.files[0], 'before')} 
+                          style={{ display: 'none' }}
+                        />
+                      </label>
+                    </div>
+
+                    {/* 📸 שדה 2: צילום תמונה ל-אחרי הפינוי */}
+                    <div style={{ background: '#f9f9f9', padding: '10px', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+                      <label style={labelStyle}>📸 שלב ב': תמונה אחרי הפינוי (מכולה ריקה) *</label>
+                      
+                      {p.imageUrlAfter && (
+                        <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                          <img src={p.imageUrlAfter} alt="אחרי" style={previewImageStyle} />
+                        </div>
+                      )}
+
+                      <label style={fileLabelStyle(loadingMap[`${p.id}_after`], true)}>
+                        {loadingMap[`${p.id}_after`] ? '🔄 מעלה תמונת אחרי...' : (p.imageUrlAfter ? '📷 החלף תמונת אחרי' : '📷 צלם מכולה נקייה (אחרי)')}
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          capture="environment" 
+                          disabled={loadingMap[`${p.id}_after`]}
+                          onChange={(e) => handlePhotoUpload(p.id, e.target.files[0], 'after')} 
+                          style={{ display: 'none' }}
+                        />
+                      </label>
+                    </div>
+
                   </div>
                 )}
               </div>
-            </Popup>
-          </CircleMarker>
-        ))}
-      </MapContainer>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }
 
-// עיצובים ממשק נהג
-const loginContainerStyle = { display: 'flex', height: '100vh', background: '#f0f2f5', justifyContent: 'center', alignItems: 'center', fontFamily: 'sans-serif', direction: 'rtl' };
-const loginCardStyle = { background: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', textAlign: 'center', width: '320px' };
-const loginButtonStyle = (color) => ({ width: '100%', padding: '12px', margin: '8px 0', border: 'none', borderRadius: '8px', color: 'white', background: color, fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' });
-const topBarStyle = { position: 'absolute', top: 0, left: 0, right: 0, height: '50px', background: 'white', zIndex: 1000, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 15px', boxShadow: '0 2px 5px rgba(0,0,0,0.1)', fontSize: '14px' };
-const logoutButtonStyle = { background: '#f44336', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' };
-const selectStyle = { width: '100%', padding: '6px', marginTop: '4px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '13px' };
-const photoLabelStyle = (loading) => ({ display: 'block', textAlign: 'center', background: loading ? '#9e9e9e' : '#e1f5fe', color: loading ? '#fff' : '#0288d1', padding: '8px', borderRadius: '6px', border: loading ? 'none' : '1px dashed #0288d1', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' });
+// עיצובים מותאמים מובייל (Mobile-First) עבור הנהגים בשטח בשעות יום
+const containerStyle = { padding: '14px', background: '#f4f6f9', minHeight: '100vh', fontFamily: 'sans-serif', direction: 'rtl', boxSizing: 'border-box' };
+const headerStyle = { background: '#1a237e', color: 'white', padding: '14px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' };
+const driverSelectStyle = { width: '100%', padding: '8px', borderRadius: '6px', border: 'none', fontSize: '14px', fontWeight: 'bold', background: '#ffffff', color: '#1a237e' };
+const cardStyle = (status) => {
+  const colors = { RED: '#ffcdd2', YELLOW: '#ffe0b2', GREEN: '#c8e6c9', BLUE: '#bbdefb' };
+  return { background: 'white', borderRadius: '12px', padding: '14px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)', borderRight: `6px solid ${colors[status] || '#bbdefb'}`, cursor: 'pointer', transition: 'all 0.2s ease-in-out' };
+};
+const cardHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+const badgeStyle = (status) => {
+  const colors = { RED: '#d32f2f', YELLOW: '#f57c00', GREEN: '#388e3c', BLUE: '#1976d2' };
+  return { background: colors[status] || '#1976d2', color: 'white', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold' };
+};
+const cardBodyStyle = { marginTop: '10px', textAlign: 'right' };
+const labelStyle = { display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', color: '#444' };
+const statusButtonStyle = (color, active) => ({ background: active ? color : '#f0f0f0', color: active ? 'white' : '#555', border: active ? 'none' : '1px solid #ccc', padding: '10px 4px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center' });
+const previewImageStyle = { width: '100%', maxHeight: '140px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #ccc' };
+const fileLabelStyle = (loading, isAfter = false) => ({ display: 'block', textAlign: 'center', background: loading ? '#e0e0e0' : (isAfter ? '#e8f5e9' : '#fff3e0'), color: loading ? '#666' : (isAfter ? '#2e7d32' : '#e65100'), padding: '12px', borderRadius: '8px', border: loading ? '1px solid #ccc' : (isAfter ? '2px dashed #2e7d32' : '2px dashed #e65100'), cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', marginTop: '4px' });
