@@ -19,7 +19,23 @@ const getZoneColor = (zone) => {
   return ZONE_COLORS[Math.abs(hash) % ZONE_COLORS.length];
 };
 
-// רכיב פנימי שממרכז את המפה אוטומטית לפי נקודות המשימה של הנהג
+// 🧮 אלגוריתם Ray-Casting לבדיקה גיאוגרפית האם נקודה נמצאת בתוך פוליגון
+const isPointInPolygon = (lat, lng, polygonCoords) => {
+  if (!polygonCoords || polygonCoords.length < 3) return false;
+  
+  let inside = false;
+  for (let i = 0, j = polygonCoords.length - 1; i < polygonCoords.length; j = i++) {
+    const xi = polygonCoords[i].lat, yi = polygonCoords[i].lng;
+    const xj = polygonCoords[j].lat, yj = polygonCoords[j].lng;
+    
+    const intersect = ((yi > lng) !== (yj > lng))
+        && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
+// רכיב פנימי שממרכז את המפה אוטומטית לפי משימות הנהג הנוכחיות
 function FitMapBounds({ points }) {
   const map = useMap();
   useEffect(() => {
@@ -34,9 +50,9 @@ export default function DriverView() {
   const [points, setPoints] = useState([]);
   const [zones, setZones] = useState([]);
   const [selectedDriver, setSelectedDriver] = useState('נהג 1');
-  const [loadingMap, setLoadingMap] = useState({}); // מעקב חיווי טעינה לכל כפתור צילום
+  const [loadingMap, setLoadingMap] = useState({});
 
-  // 1. טעינת נקודות האיסוף בזמן אמת
+  // 1. טעינת כל המכולות מה-Firestore
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'CollectionPoints'), (snapshot) => {
       const data = snapshot.docs
@@ -47,7 +63,7 @@ export default function DriverView() {
     return () => unsub();
   }, []);
 
-  // 2. טעינת גזרות האיסוף (הפוליגונים) בזמן אמת
+  // 2. טעינת גזרות האיסוף (הפוליגונים) מה-Firestore
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'Zones'), (snapshot) => {
       setZones(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
@@ -88,9 +104,14 @@ export default function DriverView() {
     }
   };
 
-  // 🔍 סינון הנתונים לפי הנהג שנבחר בבר העליון
+  // 🔍 סינון גזרות: מציג רק את הפוליגונים המשויכים לנהג הנבחר
   const filteredZones = zones.filter((zone) => zone.driver === selectedDriver);
-  const filteredPoints = points.filter((p) => p.driver === selectedDriver || !p.driver);
+
+  // 🔍 סינון נקודות גיאוגרפי (Geo-fencing): 
+  // מציג נקודה אך ורק אם היא נופלת פיזית בתוך אחד מהפוליגונים של הנהג הנוכחי!
+  const filteredPoints = points.filter((point) => {
+    return filteredZones.some((zone) => isPointInPolygon(point.lat, point.lng, zone.coordinates));
+  });
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', margin: 0, padding: 0 }}>
@@ -118,12 +139,12 @@ export default function DriverView() {
             <Polygon 
               key={zone.id} 
               positions={zone.coordinates.map(pt => [pt.lat, pt.lng])} 
-              pathOptions={{ color: zoneColor, fillColor: zoneColor, fillOpacity: 0.2, weight: 4 }}
+              pathOptions={{ color: zoneColor, fillColor: zoneColor, fillOpacity: 0.18, weight: 4 }}
             />
           );
         })}
 
-        {/* הצגת נקודות המכולה המשויכות לנהג זה */}
+        {/* הצגת נקודות המכולה שנמצאות פיזית בתוך הגזרה שלו בלבד */}
         {filteredPoints.map((p) => (
           <CircleMarker 
             key={p.id} 
@@ -135,7 +156,7 @@ export default function DriverView() {
               <div style={popupContainerStyle}>
                 <strong style={{ fontSize: '15px', color: '#1a237e', display: 'block', marginBottom: '2px' }}>{p.address}</strong>
                 <div style={{ fontSize: '12px', color: '#555', marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '4px' }}>
-                  📋 משימה: {p.issueDescription || 'פינוי סדיר'}
+                  📋 מכולת גזרה: {p.issueDescription || 'פינוי סדיר'}
                 </div>
                 
                 {/* עדכון סטטוס מהיר ישירות מהפופאפ במפה */}
@@ -196,12 +217,10 @@ export default function DriverView() {
 // ============== עיצובים קשיחים מותאמי מובייל (Mobile-First) ==============
 const topBarStyle = { position: 'absolute', top: '12px', left: '12px', right: '12px', zIndex: 1100, background: '#1a237e', padding: '10px 14px', borderRadius: '10px', boxShadow: '0 3px 10px rgba(0,0,0,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', direction: 'rtl', fontFamily: 'sans-serif' };
 const selectStyle = { padding: '6px 10px', borderRadius: '6px', border: 'none', fontSize: '13px', fontWeight: 'bold', color: '#1a237e', background: 'white', outline: 'none', cursor: 'pointer' };
-
 const popupContainerStyle = { direction: 'rtl', textAlign: 'right', fontFamily: 'sans-serif', padding: '2px', boxSizing: 'border-box' };
 const labelStyle = { display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#333' };
 const statusGridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5px', marginBottom: '12px' };
 const statusBtnStyle = (color, active) => ({ background: active ? color : '#f5f5f5', color: active ? 'white' : '#555', border: active ? 'none' : '1px solid #ccc', padding: '9px 2px', borderRadius: '5px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center' });
-
 const photoBoxStyle = { background: '#fcfcfc', border: '1px solid #e2e2e2', padding: '6px', borderRadius: '6px', marginBottom: '8px', boxSizing: 'border-box' };
 const photoTitleStyle = (color) => ({ fontSize: '11px', fontWeight: 'bold', color: color, marginBottom: '4px' });
 const imgPreviewStyle = { width: '100%', maxHeight: '90px', objectFit: 'cover', borderRadius: '4px', marginBottom: '4px', border: '1px solid #ddd' };
