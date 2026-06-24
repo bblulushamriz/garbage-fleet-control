@@ -19,7 +19,7 @@ const getZoneColor = (zone) => {
   return ZONE_COLORS[Math.abs(hash) % ZONE_COLORS.length];
 };
 
-// 🧮 אלגוריתם Ray-Casting לבדיקה גיאוגרפית האם נקודה נמצאת בתוך פוליגון
+// אלגוריתם Ray-Casting לבדיקה גיאוגרפית האם נקודה נמצאת בתוך פוליגון
 const isPointInPolygon = (lat, lng, polygonCoords) => {
   if (!polygonCoords || polygonCoords.length < 3) return false;
   
@@ -35,7 +35,6 @@ const isPointInPolygon = (lat, lng, polygonCoords) => {
   return inside;
 };
 
-// רכיב פנימי שממרכז את המפה אוטומטית לפי משימות הנהג הנוכחיות
 function FitMapBounds({ points }) {
   const map = useMap();
   useEffect(() => {
@@ -104,11 +103,8 @@ export default function DriverView() {
     }
   };
 
-  // 🔍 סינון גזרות: מציג רק את הפוליגונים המשויכים לנהג הנבחר
+  // סינון גזרות ונקודות לפי הנהג הנבחר (Geo-fencing)
   const filteredZones = zones.filter((zone) => zone.driver === selectedDriver);
-
-  // 🔍 סינון נקודות גיאוגרפי (Geo-fencing): 
-  // מציג נקודה אך ורק אם היא נופלת פיזית בתוך אחד מהפוליגונים של הנהג הנוכחי!
   const filteredPoints = points.filter((point) => {
     return filteredZones.some((zone) => isPointInPolygon(point.lat, point.lng, zone.coordinates));
   });
@@ -132,7 +128,7 @@ export default function DriverView() {
         
         <FitMapBounds points={filteredPoints} />
 
-        {/* הצגת פוליגון גזרת האיסוף המשויך לנהג זה */}
+        {/* גזרת איסוף */}
         {filteredZones.map((zone) => {
           const zoneColor = getZoneColor(zone);
           return (
@@ -144,7 +140,7 @@ export default function DriverView() {
           );
         })}
 
-        {/* הצגת נקודות המכולה שנמצאות פיזית בתוך הגזרה שלו בלבד */}
+        {/* נקודות מכולה בגזרה */}
         {filteredPoints.map((p) => (
           <CircleMarker 
             key={p.id} 
@@ -159,7 +155,7 @@ export default function DriverView() {
                   📋 מכולת גזרה: {p.issueDescription || 'פינוי סדיר'}
                 </div>
                 
-                {/* עדכון סטטוס מהיר ישירות מהפופאפ במפה */}
+                {/* עדכון סטטוס */}
                 <label style={labelStyle}>🔄 עדכן מצב מכולה:</label>
                 <div style={statusGridStyle}>
                   <button onClick={() => handleStatusChange(p.id, 'RED')} style={statusBtnStyle('#e53935', p.status === 'RED')}>🚨 מלא</button>
@@ -167,54 +163,58 @@ export default function DriverView() {
                   <button onClick={() => handleStatusChange(p.id, 'GREEN')} style={statusBtnStyle('#43a047', p.status === 'GREEN')}>✅ פונה</button>
                 </div>
 
-                {/* 📸 שדה א': צילום תמונה לפני הפינוי */}
+                {/* 📸 שדה א': תמונה לפני הפינוי (עם קשר קשיח ומזהה ייחודי) */}
                 <div style={photoBoxStyle}>
                   <div style={photoTitleStyle('#e65100')}>📸 שלב א': תמונה לפני הפינוי</div>
                   {(p.imageUrlBefore || p.imageUrl) && (
                     <img src={p.imageUrlBefore || p.imageUrl} alt="לפני" style={imgPreviewStyle} />
                   )}
-                  <label style={fileLabelStyle(loadingMap[`${p.id}_before`], '#fff3e0', '#e65100')}>
+                  <label htmlFor={`file-before-${p.id}`} style={fileLabelStyle(loadingMap[`${p.id}_before`], '#fff3e0', '#e65100')}>
                     {loadingMap[`${p.id}_before`] ? '🔄 מעלה תמונה...' : '📷 צלם מכולה מלאה (לפני)'}
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      capture="environment" 
-                      disabled={loadingMap[`${p.id}_before`]} 
-                      onChange={(e) => handlePhotoUpload(p.id, e.target.files[0], 'before')} 
-                      style={{ display: 'none' }} 
-                    />
                   </label>
+                  <input 
+                    id={`file-before-${p.id}`} // ◄-- מזהה ייחודי קשיח מונע בלבול דפדפנים
+                    type="file" 
+                    accept="image/*" 
+                    capture="environment" 
+                    disabled={loadingMap[`${p.id}_before`]} 
+                    onClick={(e) => { e.target.value = null; }} // ◄-- מאפס ערך כדי לאפשר צילום חוזר תמיד
+                    onChange={(e) => handlePhotoUpload(p.id, e.target.files[0], 'before')} 
+                    style={{ display: 'none' }} 
+                  />
                 </div>
 
-                {/* 📸 שדה ב': צילום תמונה אחרי הפינוי */}
+                {/* 📸 שדה ב': תמונה אחרי הפינוי (פתרון החסימה הדינמית) */}
                 <div style={photoBoxStyle}>
                   <div style={photoTitleStyle('#2e7d32')}>📸 שלב ב': תמונה אחרי הפינוי</div>
                   {p.imageUrlAfter && (
                     <img src={p.imageUrlAfter} alt="אחרי" style={imgPreviewStyle} />
                   )}
-                  <label style={fileLabelStyle(loadingMap[`${p.id}_after`], '#e8f5e9', '#2e7d32')}>
+                  <label htmlFor={`file-after-${p.id}`} style={fileLabelStyle(loadingMap[`${p.id}_after`], '#e8f5e9', '#2e7d32')}>
                     {loadingMap[`${p.id}_after`] ? '🔄 מעלה תמונה...' : '📷 צלם מכולה ריקה (אחרי)'}
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      capture="environment" 
-                      disabled={loadingMap[`${p.id}_after`]} 
-                      onChange={(e) => handlePhotoUpload(p.id, e.target.files[0], 'after')} 
-                      style={{ display: 'none' }} 
-                    />
                   </label>
+                  <input 
+                    id={`file-after-${p.id}`} // ◄-- הפרדה מוחלטת לשדה השני למניעת התנגשות גיאומטרית בדפדפני מובייל
+                    type="file" 
+                    accept="image/*" 
+                    capture="environment" 
+                    disabled={loadingMap[`${p.id}_after`]} 
+                    onClick={(e) => { e.target.value = null; }} // ◄-- מאפס ערך
+                    onChange={(e) => handlePhotoUpload(p.id, e.target.files[0], 'after')} 
+                    style={{ display: 'none' }} 
+                  />
                 </div>
 
               </div>
             </Popup>
-          </CircleMarker>
+          </Marker>
         ))}
       </MapContainer>
     </div>
   );
 }
 
-// ============== עיצובים קשיחים מותאמי מובייל (Mobile-First) ==============
+// עיצובים
 const topBarStyle = { position: 'absolute', top: '12px', left: '12px', right: '12px', zIndex: 1100, background: '#1a237e', padding: '10px 14px', borderRadius: '10px', boxShadow: '0 3px 10px rgba(0,0,0,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', direction: 'rtl', fontFamily: 'sans-serif' };
 const selectStyle = { padding: '6px 10px', borderRadius: '6px', border: 'none', fontSize: '13px', fontWeight: 'bold', color: '#1a237e', background: 'white', outline: 'none', cursor: 'pointer' };
 const popupContainerStyle = { direction: 'rtl', textAlign: 'right', fontFamily: 'sans-serif', padding: '2px', boxSizing: 'border-box' };
